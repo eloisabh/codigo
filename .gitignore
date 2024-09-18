@@ -1,0 +1,42 @@
+# Ignorar arquivos temporários do sistema operacional
+.DS_Store
+Thumbs.db
+
+# Ignorar arquivos de compilação
+*.class
+*.o
+*.so
+*.exe
+*.cfg
+*.weights
+
+# Ignorar diretórios e arquivos do ambiente virtual Python
+venv/
+Venv/
+env/
+Env/
+
+# Ignorar arquivos de cache do Python
+__pycache__/
+*.py[cod]
+
+# Ignorar arquivos de log
+*.log
+
+# Ignorar configurações específicas do IDE
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+#ignorar biblioteca
+lib/*
+lib/
+Data/*
+Data/yolov3.cfg
+Data/yolov3.weights
+Data/coco.names
+*.names
+.gitignore

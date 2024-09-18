@@ -1,62 +1,107 @@
 import cv2
+import numpy as np
+import os
 import matplotlib.pyplot as plt
 
-imagePath = 'corpo2.jpeg' #indicando o caminho da imagem
-img = cv2.imread(imagePath) #lê a imagem com a função .imread() do OpenCV
-#Isso carregará a imagem do caminho do arquivo especificado e a retornará na forma de uma matriz Numpy
+weights_path = "lib/yolov3.weights"
+config_path = "lib/yolov3.cfg"
+classes_path = "lib/coco.names"  # Arquivo de nomes das classes
 
-'''Opta-se pela utilização de matriz Numpy principalmente por conta da performance desta. Normalmente
-    utilizada por conta da alta capacidades de manipulação e operação com grandes volumes de dados numéricos.
-    Observa-se que todos os elementos devem ser do mesmo tipo (por exemplo, todos inteiros ou todos de ponto flutuante).
-    É possível realizar operações vetorizadas, ou seja, aplicar operações matemáticas a todos os elementos de uma vez, 
-    sem a necessidade de laços explícitos (loops)'''
+# Verificar se os arquivos necessários existem
+if not os.path.exists(weights_path):
+    print(f"Erro: Arquivo de pesos não encontrado em {weights_path}")
+    exit()
+
+if not os.path.exists(config_path):
+    print(f"Erro: Arquivo de configuração não encontrado em {config_path}")
+    exit()
+
+if not os.path.exists(classes_path):
+    print(f"Erro: Arquivo de nomes das classes não encontrado em {classes_path}")
+    exit()
+
+# Carregar os nomes das classes
+with open(classes_path, "r") as f:
+    classes = [line.strip() for line in f.readlines()]
+
+# Carregar os arquivos da rede neural YOLO pré-treinada
+try:
+    net = cv2.dnn.readNet(weights_path, config_path)
+except cv2.error as e:
+    print(f"Erro ao carregar a rede YOLO: {e}")
+    exit()
+
+# Obter os nomes das camadas de saída
+layer_names = net.getLayerNames()
+
+# Ajustar o índice para versões diferentes do OpenCV
+try:
+    # Para versões mais recentes do OpenCV (> 4.0)
+    output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers().flatten()]
+except AttributeError:
+    # Para versões mais antigas do OpenCV
+    output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
+
+# Carregar a imagem
+imagePath = 'img/corpo4.jpg'
+img = cv2.imread(imagePath)
 
 if img is None:
-    print("Erro ao carregar imagem!")
+    print(f"Erro ao carregar a imagem em {imagePath}")
     exit()
 
-print(f'Shape Img Colorida: {img.shape}') #Shape retorna uma tupla que contém as dimensões da imagem (largura, altura, qtd canais de cores)
+height, width, channels = img.shape
 
-#UTILIZAÇÃO DO HAAR CASCADE (CLASSIFICADOR)
-'''Algoritmo popular usado para detecção de objetos em imagens, especialmente na detecção de rostos
-    Padrões retangulares são utilizados para identificar contrastes entre áreas claras e escuras de uma imagem. 
-    Essas características são aplicadas sobre uma imagem e, em seguida, um classificador treina sobre estas 
-    características para detectar padrões específicos'''
+# Pré-processamento da imagem para YOLO
+blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+net.setInput(blob)
+outs = net.forward(output_layers)
 
-#Representação de cores de imagem não é RGB e sim BGR
+# Listas para armazenar as informações das detecções
+class_ids = []
+confidences = []
+boxes = []
 
-#Para aumentar a eficiência computacional, converte-se a imagem em escala de cinza antes de executar a detecção de faces
-grey_image = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-print(f'Shape Img P&B {grey_image.shape}')
-cv2.imshow('P&B', grey_image)
-cv2.waitKey(0)
+# Analisar as detecções
+for out in outs:
+    for detection in out:
+        scores = detection[5:]
+        class_id = np.argmax(scores)
+        confidence = scores[class_id]
 
-#Carregando o classificador pré-treinado integrado ao OpenCV
-#haarcascade_fullbody.xml (detectar corpo inteiro na entrada visual)
-body_cascade = cv2.CascadeClassifier("haarcascade_fullbody.xml")
+        # Filtrar detecções com confiança acima de um limite
+        if confidence > 0.5:
+            # Coordenadas da caixa delimitadora
+            center_x = int(detection[0] * width)
+            center_y = int(detection[1] * height)
+            w = int(detection[2] * width)
+            h = int(detection[3] * height)
 
-#Verifica se o classificador foi carregado corretamente
-if body_cascade.empty():
-    print('Erro ao carregar o classificador!')
-    exit()
+            # Coordenadas da caixa delimitadora
+            x = int(center_x - w / 2)
+            y = int(center_y - h / 2)
 
-#Executar a detecção de pessoas na imagem em escala de cinza
-body = body_cascade.detectMultiScale(grey_image, scaleFactor=1.1, minNeighbors=3)
-    #detectMultiScale(): metodo utilizado para identificar se há o padrão que procuramos
-        #grey_image: imagem na escala de cinza criada anteriormente
-        #scaleFactor: reduz o tamanho da imagem de entrada (1.1 - reduz 10%)
-        #minNeighbors: especifica quantas regiões sobrepostas precisam existir para que o algoritmo considere
-#           essa detecção confiável
-        #minSize: define o tamanho do objeto a ser identificado
+            # Armazenar as informações das detecções
+            boxes.append([x, y, w, h])
+            confidences.append(float(confidence))
+            class_ids.append(class_id)
 
-for (x, y, w, h) in body:
-    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2)
-        #(0, 255, 0) é a cor da caixa delimitadora
-        # 4 indica a espessura
+# Aplicar supressão não máxima para eliminar caixas delimitadoras sobrepostas
+indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) #converte de BGR para RGB
+# Desenhar as caixas delimitadoras e rótulos na imagem
+if len(indices) > 0:
+    for i in indices.flatten():  # Ajustado para usar .flatten() para versões mais recentes
+        box = boxes[i]
+        x, y, w, h = box
+        label = str(classes[class_ids[i]])
+        confidence = confidences[i]
+        color = (255, 0, 255)  # Verde
+        cv2.rectangle(img, (x, y), (x + w, y + h), color, 4)
+        cv2.putText(img, f"{label}: {confidence:.2f}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-plt.figure(figsize=(40,20))
+# Exibir a imagem usando matplotlib
+img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 plt.imshow(img_rgb)
 plt.axis('off')
 plt.show()
